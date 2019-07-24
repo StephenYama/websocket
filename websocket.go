@@ -63,14 +63,13 @@ type UpgradeOptions struct {
 	// Error is nil, then http.Error is used to generate the HTTP response.
 	Error func(w http.ResponseWriter, r *http.Request, status int, reason error)
 
+	// If OriginTestHandledByApplication is false, then Upgrade fails the request
+	// if the origin host (as specified by the Origin request header) is not equal
+	// to the request Host header.
 	//
-	// CheckOrigin returns true if the request Origin header is acceptable. If
-	// CheckOrigin is nil, then a safe default is used: return false if the
-	// Origin request header is present and the origin host is not equal to
-	// request Host header.
-	//
-	// A CheckOrigin function should carefully validate the request origin to
-	// prevent cross-site request forgery.
+	// If the application sets OriginTestHandledByApplication to true, then
+	// the application should carefully carefully validate the request
+	// origin to prevent cross-site request forgery.
 	OriginTestHandledByApplication bool
 
 	// Subprotocols specifies the server's supported protocols in order of
@@ -125,28 +124,45 @@ type Conn struct {
 // Subprotocol returns the negotiated protocol for the connection.
 func (c *Conn) Subprotocol() string {}
 
-// StartClose initiates the WebSocket closing handshake and arranges for
-// Reader to timeout if a timely reply is not received. The application must
-// call Reader to complete the closing handshake and close the connection.
+// CloseWrite initiates the WebSocket closing handshake and arranges for Reader
+// to timeout if a timely reply is not received.
 //
-// See the package documentation for more information on the closing handshake.
-func (c *Conn) CloseWrite(ctx context.Context, code CloseCode, message string) error {}
+// The application must call Reader to complete the closing handshake and close
+// the connection.
+//
+// Call CloseWrite to cleanly close a connection from outside the reading goroutine.
+func (c *Conn) CloseWrite(code CloseCode, message string) error {}
+
+// Close initiates the WebSocket closing handshake if it has not already ben
+// started,  reads the connection until the handshake is completed or five
+// second timeout and closes the underlying network connection.
+//
+// If the close code is CloseAbnormalClosure, then the underlying network connection
+// is closed without sending or waiting for a closing handshake.
+func (c *Conn) Close(code CloseCode, message string) error {}
 
 // SetParentContext sets a parent context for the connection. The connection is
-// closed when the parent context is canceled.
+// closed when the parent context is canceled. The returned context is canceled
+// when the connection is closed.
 func (c *Conn) SetParentContextContext(ctx context.Context) context.Context {}
 
 // Reader returns a Reader on the next data message received from the peer.
 //
-// Control messages are handled internerally by connection. The application must
-// call Reaader in a loop to process these messages.
+// Control messages are handled internally by connection. The application must
+// call Reader in a loop to process these messages.
+//
+// If UpgradeOptions.PingPerid is greater than or equal to zero, then Reader
+// monitors the connection health and will return with an error if a dead or
+// stuck connection is detected.
 //
 // The application must read each Reader until io.EOF or some other error is
 // returned.
-func (c *Conn) Reader(ctx context.Context) (Reader, error) { return Reader{}, nil }
+func (c *Conn) Reader() (Reader, error) { return Reader{}, nil }
 
-// Writer returns a message writer. The application must close the writer when
-// done writing the message.
+// Writer returns a message writer.
+//
+// The application must close the writer when done writing the message.
+// Subsequent calls to Writer will block until the returned Writer is closed.
 func (c *Conn) Writer(ctx context.Context) (Writer, error) { return Writer{}, nil }
 
 // Writer writes a message to the peer. Writer satisfies the io.Writer
